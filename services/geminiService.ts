@@ -1,11 +1,13 @@
 
 // Client-side: call server-side Netlify function which holds the API key
-const callGemini = async (prompt: string): Promise<string> => {
+type Provider = 'auto' | 'gemini' | 'openai';
+
+const callGemini = async (prompt: string, provider: Provider = 'auto', model?: string): Promise<string> => {
   try {
     const res = await fetch('/.netlify/functions/review', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt }),
+      body: JSON.stringify({ prompt, provider, model }),
     });
     if (!res.ok) {
       const text = await res.text();

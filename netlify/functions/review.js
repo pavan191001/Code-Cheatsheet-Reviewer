@@ -9,31 +9,76 @@ export async function handler(event) {
 
     const body = event.body ? JSON.parse(event.body) : {};
     const prompt = body.prompt;
+    const provider = body.provider || 'auto'; // 'gemini' | 'openai' | 'auto'
+    const model = body.model; // optional model override
+
     if (!prompt) {
       return { statusCode: 400, body: 'Missing prompt' };
     }
 
-    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENAI_API_KEY;
-    if (!apiKey) {
-      return { statusCode: 500, body: JSON.stringify({ error: 'GEMINI_API_KEY not configured' }) };
+    const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENAI_API_KEY;
+    const openaiKey = process.env.OPENAI_API_KEY || process.env.GPT_API_KEY;
+
+    // provider selection
+    const useGemini = provider === 'gemini' || (provider === 'auto' && !!geminiKey);
+    const useOpenAI = provider === 'openai' || (provider === 'auto' && !geminiKey && !!openaiKey);
+
+    if (useGemini) {
+      if (!geminiKey) {
+        return { statusCode: 500, body: JSON.stringify({ error: 'GEMINI_API_KEY not configured' }) };
+      }
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey: geminiKey });
+      const response = await ai.models.generateContent({
+        model: model || 'gemini-2.5-flash',
+        contents: prompt,
+      });
+      return {
+        statusCode: 200,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: 'gemini', text: response.text }),
+      };
     }
 
-    // import the official SDK dynamically
-    const { GoogleGenAI } = await import('@google/genai');
-    const ai = new GoogleGenAI({ apiKey });
+    if (useOpenAI) {
+      if (!openaiKey) {
+        return { statusCode: 500, body: JSON.stringify({ error: 'OPENAI_API_KEY not configured' }) };
+      }
 
-    // Forward the prompt to Gemini model
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-    });
+      // Call OpenAI Chat Completions (v1) - simple implementation
+      const openaiModel = model || 'gpt-4o-mini';
+      const payload = {
+        model: openaiModel,
+        messages: [
+          { role: 'system', content: 'You are a helpful assistant.' },
+          { role: 'user', content: prompt },
+        ],
+        max_tokens: 1000,
+      };
 
-    // Return the text to the frontend
-    return {
-      statusCode: 200,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: response.text }),
-    };
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${openaiKey}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const txt = await res.text();
+        return { statusCode: res.status, body: JSON.stringify({ error: txt }) };
+      }
+      const data = await res.json();
+      const text = (data.choices && data.choices[0] && (data.choices[0].message?.content || data.choices[0].text)) || '';
+      return {
+        statusCode: 200,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: 'openai', text }),
+      };
+    }
+
+    return { statusCode: 400, body: JSON.stringify({ error: 'No provider key configured or invalid provider' }) };
   } catch (err) {
     console.error('Function error:', err);
     return { statusCode: 500, body: JSON.stringify({ error: err instanceof Error ? err.message : String(err) }) };
