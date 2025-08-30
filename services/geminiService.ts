@@ -1,28 +1,22 @@
 
-import { GoogleGenAI } from "@google/genai";
-
-const API_KEY = process.env.API_KEY;
-
-if (!API_KEY) {
-  throw new Error("API_KEY environment variable not set");
-}
-
-const ai = new GoogleGenAI({ apiKey: API_KEY });
-
+// Client-side: call server-side Netlify function which holds the API key
 const callGemini = async (prompt: string): Promise<string> => {
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
+    const res = await fetch('/.netlify/functions/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
     });
-    
-    return response.text;
-  } catch (error) {
-    console.error("Error calling Gemini API:", error);
-    if (error instanceof Error) {
-        throw new Error(`Error during Gemini API call: ${error.message}`);
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Server function error: ${res.status} ${text}`);
     }
-    throw new Error("An unexpected error occurred during the API call.");
+    const data = await res.json();
+    return data.text;
+  } catch (error) {
+    console.error('Error calling server function:', error);
+    if (error instanceof Error) throw error;
+    throw new Error('Unknown error calling server function');
   }
 };
 
