@@ -7,28 +7,31 @@ export async function handler(event) {
       return { statusCode: 405, body: 'Method Not Allowed' };
     }
 
-    const body = event.body ? JSON.parse(event.body) : {};
-    const prompt = body.prompt;
-    const provider = body.provider || 'auto'; // 'gemini' | 'openai' | 'auto'
-    const model = body.model; // optional model override
+  const body = event.body ? JSON.parse(event.body) : {};
+  const prompt = body.prompt;
+  const provider = body.provider || 'auto'; // 'gemini' | 'openai' | 'auto'
+  const model = body.model; // optional model override
+  // Optional client-provided key (not recommended): if provided and server keys missing, function may use it.
+  const clientKey = body.clientKey || null;
 
     if (!prompt) {
       return { statusCode: 400, body: 'Missing prompt' };
     }
 
-    const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENAI_API_KEY;
-    const openaiKey = process.env.OPENAI_API_KEY || process.env.GPT_API_KEY;
+  const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENAI_API_KEY || null;
+  const openaiKey = process.env.OPENAI_API_KEY || process.env.GPT_API_KEY || null;
 
     // provider selection
     const useGemini = provider === 'gemini' || (provider === 'auto' && !!geminiKey);
     const useOpenAI = provider === 'openai' || (provider === 'auto' && !geminiKey && !!openaiKey);
 
     if (useGemini) {
-      if (!geminiKey) {
+      const effectiveKey = geminiKey || clientKey;
+      if (!effectiveKey) {
         return { statusCode: 500, body: JSON.stringify({ error: 'GEMINI_API_KEY not configured' }) };
       }
       const { GoogleGenAI } = await import('@google/genai');
-      const ai = new GoogleGenAI({ apiKey: geminiKey });
+      const ai = new GoogleGenAI({ apiKey: effectiveKey });
       const response = await ai.models.generateContent({
         model: model || 'gemini-2.5-flash',
         contents: prompt,
@@ -41,7 +44,8 @@ export async function handler(event) {
     }
 
     if (useOpenAI) {
-      if (!openaiKey) {
+      const effectiveKey = openaiKey || clientKey;
+      if (!effectiveKey) {
         return { statusCode: 500, body: JSON.stringify({ error: 'OPENAI_API_KEY not configured' }) };
       }
 
@@ -56,11 +60,11 @@ export async function handler(event) {
         max_tokens: 1000,
       };
 
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${openaiKey}`,
+      Authorization: `Bearer ${effectiveKey}`,
         },
         body: JSON.stringify(payload),
       });

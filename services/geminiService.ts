@@ -2,12 +2,24 @@
 // Client-side: call server-side Netlify function which holds the API key
 type Provider = 'auto' | 'gemini' | 'openai';
 
+const STORAGE_KEY = 'codeReviewer.keys';
+
 const callGemini = async (prompt: string, provider: Provider = 'auto', model?: string): Promise<string> => {
   try {
+    let clientKey = null;
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.apiKey) clientKey = parsed.apiKey;
+        if (parsed.provider && provider === 'auto') provider = parsed.provider;
+      }
+    } catch (e) {}
+
     const res = await fetch('/.netlify/functions/review', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, provider, model }),
+      body: JSON.stringify({ prompt, provider, model, clientKey }),
     });
     if (!res.ok) {
       const text = await res.text();
